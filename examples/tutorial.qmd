@@ -1,0 +1,178 @@
+---
+title: "patternq tutorial"
+subtitle: "Querying and analyzing the Pattern Data Commons · R"
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+The basic patternq workflow, step by step. The same steps, with the same
+datasets and outputs, are in `tutorial.qmd` in [patternq](https://github.com/RCRF/patternq) (marimo),
+`tutorial.clj` in [patternq-clj](https://github.com/RCRF/patternq-clj) (Clay) and `tutorial.qmd` in [PatternQ.jl](https://github.com/RCRF/PatternQ.jl) (Julia).
+
+| step | what |
+|---|---|
+| 1 | connect and find a dataset |
+| 2 | explore a dataset: assays, measurement sets, samples, subjects |
+| 3 | write a Datalog query |
+| 4 | canned queries: variants and gene expression |
+| 5 | any measurement, reshaped and joined with sample context |
+| 6 | clinical outcomes and survival |
+| 7 | a sample against a reference cohort |
+| 8 | expression change between two samples |
+
+## 1. Connect and find a dataset
+
+Set `PATTERNQ_API_KEY` (and optionally `PATTERNQ_ENDPOINT`) in the environment,
+or call `set_token()` / `set_query_server()`.
+
+```{r}
+library(patternq)
+query_server()
+datasets <- list_datasets()
+head(datasets[, c("dataset", "db", "patient_count", "sample_count")])
+```
+
+Every dataset is its own database. Dataset names are stable; database names
+change when a dataset is re-imported, so resolve them:
+
+```{r}
+h37001 <- resolve_db("H37001")
+uvm <- resolve_db("tcga-uvm")
+c(h37001, uvm)
+set_db(h37001)
+```
+
+## 2. Explore a dataset
+
+```{r}
+dataset_summary()
+measurement_types("RSEM RNASeq")
+samples()
+subjects()
+```
+
+## 3. Write a Datalog query
+
+Queries are Datomic Datalog in the query service's JSON form: variables are
+`"?x"`, attributes `":ns/name"`, each clause a vector.
+
+```{r}
+q <- dq(find = c("?sample-id", "?site"),
+        where = list(c("?s", ":sample/id", "?sample-id"),
+                     c("?s", ":sample/freetext-anatomic-site", "?site")))
+do_query(q)
+```
+
+Inputs bind with `in` / `args`; a vector binds a collection:
+
+```{r}
+q <- dq(find = c("?sample-id", "?hgnc", "?vaf"),
+        `in` = list(c("?hgnc", "...")), args = list(c("BAP1", "GNAQ", "SF3B1")),
+        where = list(c("?g", ":gene/hgnc-symbol", "?hgnc"),
+                     c("?v", ":variant/gene", "?g"),
+                     c("?m", ":measurement/variant", "?v"),
+                     c("?m", ":measurement/vaf", "?vaf"),
+                     c("?m", ":measurement/sample", "?s"),
+                     c("?s", ":sample/id", "?sample-id")))
+do_query(q)
+```
+
+Every result records where it came from:
+
+```{r}
+str(provenance(do_query(q)))
+```
+
+## 4. Variants and gene expression
+
+```{r}
+v <- variants()
+nrow(v)
+head(v[v$impact == "high", c("sample_id", "hgnc_symbol", "HGVSp", "vaf")])
+plot_vaf_histogram(v, samples = c("H37001-001", "H37001-006"))
+```
+
+```{r}
+gx <- gene_expression(genes = c("BAP1", "GNAQ", "PRAME", "PMEL", "MLANA"), measurement = "tpm")
+head(gx)
+plot_gene_expression(gx, title = "Melanocytic genes (TPM)", ylab = "TPM", log = TRUE)
+```
+
+Copy number queries always take a subset (genes, samples or subjects):
+
+```{r}
+cnv_segments(genes = c("BAP1", "GNAQ"))
+```
+
+## 5. Any measurement, reshaped and joined with context
+
+`measurements()` works for any measurement attribute and detects what each
+measurement is of (gene, cell population, epitope, ...). Here: CyTOF cell
+population frequencies in PRINCE.
+
+```{r}
+prince <- resolve_db("prince-2022")
+measurement_types("PICI CyTOF Immune Profiling", db = prince)
+cy <- measurements("percent-of-parent", "PICI CyTOF Immune Profiling", db = prince)
+head(cy)
+```
+
+Wide (samples x populations):
+
+```{r}
+m <- to_matrix(cy, col = "cell_population")
+dim(m)
+```
+
+With sample and subject context:
+
+```{r}
+cy <- add_sample_context(cy, db = prince)
+head(cy[, c("sample_id", "subject_id", "timepoint_id", "cell_population", "value")])
+plot_by_timepoint(cy[cy$cell_population == "HLA-DR+ Non-Naive CD8 T Cells", ],
+                  timepoints = c("C1D1", "C1D15", "C2D1", "C4D1"), lines = TRUE,
+                  title = "HLA-DR+ non-naive CD8 T cells", ylab = "% of parent")
+```
+
+## 6. Clinical outcomes and survival
+
+```{r}
+outcomes <- subject_outcomes(prince)
+head(outcomes)
+plot_survival(outcomes, "os", "os_event", group = "bor", xlab = "months",
+              title = "Overall survival by best overall response")
+```
+
+Survival split at the median of a baseline biomarker, with a log-rank test:
+
+```{r}
+base <- cy[cy$cell_population == "HLA-DR+ Non-Naive CD8 T Cells" & cy$timepoint_id == "C1D1", ]
+km <- survival_by_median(tapply(base$value, base$subject_id, mean), outcomes)
+attr(km, "logrank")$p
+plot_survival(km, group = "group", levels = c("low", "high"), xlab = "months",
+              title = "OS by baseline HLA-DR+ non-naive CD8 T cells")
+```
+
+## 7. A sample against a reference cohort
+
+Place a patient sample within a reference cohort's distribution, gene by gene
+(z-score and percentile on log2(1 + TPM)). Only compare comparable
+measurements, and check `cohort_observed`.
+
+```{r}
+genes <- c("BAP1", "GNAQ", "PRAME", "MITF", "PMEL", "TYR", "MLANA", "CD8A", "GZMB")
+cmp <- compare_to_cohort("H37001-003", db = h37001, cohort.db = uvm, genes = genes)
+cmp[, c("hgnc_symbol", "value", "z", "percentile", "cohort_observed")]
+examine_geneset(genes, samples = c("H37001-003", "H37001-001"), db = h37001,
+                cohort.dbs = c("TCGA-UVM" = uvm), title = "H37001 vs TCGA-UVM")
+```
+
+## 8. Expression change between two samples
+
+```{r}
+change <- compare_samples("H37001-003", "H37001-001", db = h37001)
+head(change)
+plot_ma(change)
+```

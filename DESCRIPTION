@@ -1,0 +1,19 @@
+Package: patternq
+Type: Package
+Title: Query and Analysis Tools for the Pattern Data Commons
+Version: 0.3.0
+Authors@R: c(
+    person("Benjamin", "Kamphaus", email = "ben@vendekagonlabs.com", role = c("aut", "cre")),
+    person("Pier Federico", "Gherardini", role = "aut",
+           comment = "datalogr, wick"),
+    person("Lacey", "Kitch", role = "aut", comment = "datalogr, wick"))
+Description: Query the Pattern Data Commons (Unify / Datomic) query service with
+    Datalog, run canned queries against per-dataset databases, and make plotly
+    plots of the results. Consolidates and supersedes datalogr and wick.
+License: Apache License (== 2.0)
+Encoding: UTF-8
+Depends: R (>= 4.1)
+Imports: httr2, jsonlite, rlang, plotly
+Suggests: testthat (>= 3.0.0)
+Config/testthat/edition: 3
+Config/roxygen2/version: 8.1.0
