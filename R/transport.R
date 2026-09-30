@@ -110,20 +110,39 @@ query_json <- function(q, pretty = FALSE, timeout = 30, refresh.cache = FALSE) {
 #'   it on a miss. With \code{FALSE} the result is returned inline as JSON and
 #'   the cache is skipped entirely.
 #' @param refresh.cache Recompute the result and overwrite the cached copy
+#' @param format Response format: \code{"json"} (default),
+#'   \code{"transit+json"} or \code{"transit+msgpack"}. The transit formats
+#'   are always direct (they skip the S3 cache whatever \code{cache} says) and
+#'   need the optional transit package
+#'   (\code{remotes::install_github("vendekagon-labs/transit-r")}). Results
+#'   are the same as with JSON, except that with \code{"transit+msgpack"}
+#'   32-bit float attributes (e.g. TPM) arrive at their exact stored value
+#'   instead of the shortest decimal (0.045499999076 rather than 0.0455),
+#'   and pulled attributes may come back in a different column order.
+#'   Which format is fastest depends on the query and the network. Every
+#'   function that passes \code{...} to \code{\link{do_query}} passes it on.
 #' @return A list with \code{query_result}, \code{basis_t} and \code{db}
 #' @export
 raw_query <- function(q, db = NULL, timeout = 30, print.json = FALSE,
-                      cache = TRUE, refresh.cache = FALSE) {
+                      cache = TRUE, refresh.cache = FALSE, format = "json") {
     db <- ensure_db(db)
     q <- as_query(q)
+    format <- check_format(format)
     body <- query_json(q, timeout = timeout, refresh.cache = refresh.cache)
     if (print.json) message(body)
-    accept <- if (cache) "text/plain" else "application/json"
+    transit <- format != "json"
+    accept <- if (transit) response_formats[[format]] else if (cache) "text/plain" else "application/json"
     resp <- pq_request(c("query", db), accept = accept) |>
         httr2::req_body_raw(body, type = "application/json") |>
         httr2::req_timeout(timeout + 30) |>
         httr2::req_perform()
     stop_for_response(resp, "Query")
+    if (transit && isTRUE(startsWith(httr2::resp_content_type(resp), "application/transit"))) {
+        res <- decode_transit(httr2::resp_body_raw(resp), format)
+        if (!is.null(res$error)) stop("Query error: ", res$error, call. = FALSE)
+        res$db <- db
+        return(res)
+    }
     payload <- httr2::resp_body_string(resp)
     if (startsWith(trimws(payload), "{")) {
         # errors (and some small results) come back inline
@@ -154,10 +173,10 @@ raw_query <- function(q, db = NULL, timeout = 30, print.json = FALSE,
 #' @export
 do_query <- function(q, db = NULL, timeout = 30, simplify = FALSE,
                      exclude.ids = TRUE, print.json = FALSE,
-                     cache = TRUE, refresh.cache = FALSE) {
+                     cache = TRUE, refresh.cache = FALSE, format = "json") {
     q <- as_query(q)
     res <- raw_query(q, db = db, timeout = timeout, print.json = print.json,
-                     cache = cache, refresh.cache = refresh.cache)
+                     cache = cache, refresh.cache = refresh.cache, format = format)
     rows <- res$query_result
     if (is_pull_query(q)) {
         rows <- resolve_enum_refs(rows, res$db)

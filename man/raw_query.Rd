@@ -10,7 +10,8 @@ raw_query(
   timeout = 30,
   print.json = FALSE,
   cache = TRUE,
-  refresh.cache = FALSE
+  refresh.cache = FALSE,
+  format = "json"
 )
 }
 \arguments{
@@ -28,6 +29,18 @@ it on a miss. With \code{FALSE} the result is returned inline as JSON and
 the cache is skipped entirely.}
 
 \item{refresh.cache}{Recompute the result and overwrite the cached copy}
+
+\item{format}{Response format: \code{"json"} (default),
+\code{"transit+json"} or \code{"transit+msgpack"}. The transit formats
+are always direct (they skip the S3 cache whatever \code{cache} says) and
+need the optional transit package
+(\code{remotes::install_github("vendekagon-labs/transit-r")}). Results
+are the same as with JSON, except that with \code{"transit+msgpack"}
+32-bit float attributes (e.g. TPM) arrive at their exact stored value
+instead of the shortest decimal (0.045499999076 rather than 0.0455),
+and pulled attributes may come back in a different column order.
+Which format is fastest depends on the query and the network. Every
+function that passes \code{...} to \code{\link{do_query}} passes it on.}
 }
 \value{
 A list with \code{query_result}, \code{basis_t} and \code{db}

@@ -104,6 +104,26 @@ Results carry `provenance()`: database, basis t and query time.
 `cache = TRUE` (the default) uses the service's S3 result cache; `cache =
 FALSE` returns results inline and skips it; `refresh.cache = TRUE` recomputes.
 
+### Advanced: transit responses
+
+Direct queries can also come back as transit: pass `format = "transit+json"`
+or `format = "transit+msgpack"` to any query function (it is passed through
+`...` to `do_query()`). This needs the optional transit package:
+`remotes::install_github("vendekagon-labs/transit-r")`. In R, transit decodes
+large tabular results about twice as fast as jsonlite.
+
+The transit formats always skip the S3 result cache. Results are the same as
+with JSON, with two exceptions:
+
+- with `transit+msgpack`, 32-bit float attributes (such as TPM) arrive at
+  their exact stored value instead of the shortest decimal (0.045499999076
+  rather than 0.0455);
+- pulled attributes may come back in a different column order.
+
+Query time on the service usually dominates. Transit responses are not
+gzip-compressed, so they are 4–5× larger on the wire than JSON; on a slow
+connection JSON can still be faster. JSON stays the default.
+
 ## Tests
 
 ```sh
