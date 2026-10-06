@@ -14,7 +14,7 @@ License: Apache License (== 2.0)
 Encoding: UTF-8
 Depends: R (>= 4.1)
 Imports: httr2, jsonlite, rlang, plotly
-Suggests: testthat (>= 3.0.0), transit
+Suggests: testthat (>= 3.0.0), transit, withr
 Remotes: vendekagon-labs/transit-r
 Config/testthat/edition: 3
 Config/roxygen2/version: 8.1.0

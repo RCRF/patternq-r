@@ -24,6 +24,10 @@ stop_for_response <- function(resp, what) {
     msg <- body
     parsed <- tryCatch(jsonlite::fromJSON(body), error = function(e) NULL)
     if (is.list(parsed) && !is.null(parsed$error)) msg <- parsed$error
+    if (status == 400 && is.list(parsed) && isTRUE(parsed$timeout))
+        stop(sprintf(paste("%s timed out on the server: %s. Narrow the query or page it (e.g. fewer",
+                           "args per call); the server caps query timeouts at %d s."),
+                     what, msg, as.integer(max_timeout_ms() / 1000)), call. = FALSE)
     if (status == 401)
         msg <- paste("not authorized; check PATTERNQ_API_KEY / set_token().", msg)
     if (status == 403)
@@ -130,12 +134,15 @@ raw_query <- function(q, db = NULL, timeout = 30, print.json = FALSE,
     format <- check_format(format)
     body <- query_json(q, timeout = timeout, refresh.cache = refresh.cache)
     if (print.json) message(body)
+    if (timeout * 1000 > max_timeout_ms())
+        warning(sprintf("timeout = %s s is above the server's cap of %d s; the query will be canceled at the cap",
+                        timeout, as.integer(max_timeout_ms() / 1000)), call. = FALSE)
     transit <- format != "json"
     accept <- if (transit) response_formats[[format]] else if (cache) "text/plain" else "application/json"
     resp <- pq_request(c("query", db), accept = accept) |>
         httr2::req_body_raw(body, type = "application/json") |>
         httr2::req_timeout(timeout + 30) |>
-        httr2::req_perform()
+        pq_perform("Query")
     stop_for_response(resp, "Query")
     if (transit && isTRUE(startsWith(httr2::resp_content_type(resp), "application/transit"))) {
         res <- decode_transit(httr2::resp_body_raw(resp), format)
@@ -226,7 +233,7 @@ datoms <- function(index, components = list(), db = NULL, offset = 0, limit = 10
                  offset = offset, limit = limit)
     resp <- pq_request(c("datoms", db), accept = "application/json") |>
         httr2::req_body_json(body, auto_unbox = TRUE) |>
-        httr2::req_perform()
+        pq_perform("Datoms request")
     stop_for_response(resp, "Datoms request")
     res <- jsonlite::fromJSON(httr2::resp_body_string(resp), simplifyVector = FALSE)
     rows <- res$datoms_chunk
@@ -243,7 +250,7 @@ datoms <- function(index, components = list(), db = NULL, offset = 0, limit = 10
 #' @export
 list_datasets <- function() {
     resp <- pq_request(c("api-v1", "list", "datasets"), accept = "application/json") |>
-        httr2::req_perform()
+        pq_perform("Listing datasets")
     stop_for_response(resp, "Listing datasets")
     res <- jsonlite::fromJSON(httr2::resp_body_string(resp), simplifyVector = FALSE)
     ds <- res$datasets
@@ -295,7 +302,7 @@ measurement_matrix <- function(matrix.key, db = NULL) {
     db <- ensure_db(db)
     resp <- pq_request(c("matrix", db, matrix.key)) |>
         httr2::req_body_json(stats::setNames(list(), character(0))) |>
-        httr2::req_perform()
+        pq_perform("Matrix request")
     stop_for_response(resp, "Matrix request")
     raw <- fetch_presigned(httr2::resp_body_string(resp))
     utils::read.delim(text = rawToChar(raw), check.names = FALSE, stringsAsFactors = FALSE)

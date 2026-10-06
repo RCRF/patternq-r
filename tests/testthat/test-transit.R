@@ -1,5 +1,9 @@
+# The transit formats are optional for users but always tested: a missing
+# transit package fails here instead of skipping.
+stopifnot("the transit tests need transit-r: remotes::install_github(\"vendekagon-labs/transit-r\")" =
+              requireNamespace("transit", quietly = TRUE))
+
 test_that("transit responses decode to the JSON response's shape", {
-    skip_if_not_installed("transit")
     json <- paste0('{"query_result":[[{":sample/id":"S1",":sample/type":{":db/ident":":sample.type/tumor"},',
                    '":sample/recurrence":false,":sample/uid":["A","B"]},true,17592186270456,1.5,null,',
                    '"2026-03-31T22:21:35.17Z","2026-03-31T22:25:15.903Z","1970-01-01T00:00:00Z"]],"basis_t":42}')
@@ -16,7 +20,6 @@ test_that("transit responses decode to the JSON response's shape", {
 
 test_that("transit formats give the same results as JSON", {
     skip_if_no_token()
-    skip_if_not_installed("transit")
     db <- test_db("tcga-uvm")
     # pulled attributes may come in a different column order (map key order)
     strip <- function(df) {

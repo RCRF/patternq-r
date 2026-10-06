@@ -1,7 +1,6 @@
-test_that("H37001: samples, subjects, variants, expression", {
+test_that("H37001: subjects, variants, expression", {
     skip_if_no_token()
     db <- test_db("H37001")
-    expect_equal(nrow(samples(db)), 6)
     expect_equal(subjects(db)$subject_id, "H37001")
     v <- variants(db)
     expect_gt(nrow(v), 100)
@@ -18,7 +17,8 @@ test_that("tcga-uvm: cohort shape", {
     skip_if_no_token()
     db <- test_db("tcga-uvm")
     expect_equal(nrow(subjects(db)), 80)
-    expect_setequal(dataset_summary(db)$assay_technology, c("WES", "RNA-seq"))
+    expect_equal(nrow(samples(db)), 80)
+    expect_setequal(dataset_summary(db)$assay_technology, c("WES", "RNA-seq", "SNP-array"))
     expect_gt(nrow(gene_expression(db, genes = c("BAP1", "PRAME"))), 100)
     n <- do_query(dq(find = list(c("count", "?s")), where = list(c("?s", ":sample/id"))),
                   db = db, cache = FALSE)
